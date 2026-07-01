@@ -1,5 +1,6 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router';
+import { useSelector } from 'react-redux';
 import { useProduct } from '../hooks/useProduct';
 import { useCart } from '../../cart/hook/useCart';
 
@@ -8,9 +9,19 @@ const ProductDetail = () => {
     const [ product, setProduct ] = useState(null);
     const [ selectedImage, setSelectedImage ] = useState(0);
     const [ selectedAttributes, setSelectedAttributes ] = useState({});
+    const [ cartToast, setCartToast ] = useState(false);
+    const [ toastAdding, setToastAdding ] = useState(false);
     const navigate = useNavigate();
     const { handleGetProductById } = useProduct();
-    const { handleAddItem } = useCart()
+    const { handleAddItem, handleIncrementCartItem, handleDecrementCartItem, handleRemoveItem } = useCart();
+
+    // Read live cart from Redux
+    const cartItems = useSelector(state => state.cart?.items ?? []);
+
+    const showCartToast = useCallback(() => {
+        setCartToast(true);
+        setTimeout(() => setCartToast(false), 3000);
+    }, []);
 
 
 
@@ -42,14 +53,21 @@ const ProductDetail = () => {
             const vKeys = Object.keys(v.attributes);
             const sKeys = Object.keys(selectedAttributes);
             const isMatch = vKeys.every(k => v.attributes[ k ] === selectedAttributes[ k ]);
-            // If they don't have exactly the same keys, they shouldn't perfectly match, 
-            // but we might only care about matching what's available.
             return vKeys.length === sKeys.length && isMatch;
         });
     }, [ product, selectedAttributes ]);
 
+    // Find this variant in the cart (live, from Redux)
+    const cartItem = useMemo(() => {
+        if (!activeVariant?._id) return null;
+        return cartItems.find(
+            item => item.product?._id === product?._id && item.variant === activeVariant._id
+        ) ?? null;
+    }, [ cartItems, activeVariant, product ]);
 
-    console.log({ product, activeVariant })
+    const cartQty = cartItem?.quantity ?? 0;
+
+
 
     const availableAttributes = useMemo(() => {
         if (!product?.variants) return {};
@@ -105,7 +123,6 @@ const ProductDetail = () => {
         );
     }
 
-    console.log(product)
 
     // Fallbacks
     const displayImages = (activeVariant?.images && activeVariant.images.length > 0)
@@ -253,30 +270,152 @@ const ProductDetail = () => {
 
                             {/* Actions */}
                             <div className="flex flex-col gap-4 mt-auto">
-                                <button
-                                    className="w-full py-4 text-[11px] uppercase tracking-[0.25em] font-medium transition-all duration-300"
-                                    style={{
-                                        backgroundColor: '#1b1c1a',
-                                        color: '#fbf9f6',
-                                        fontFamily: "'Inter', sans-serif"
-                                    }}
-                                    onMouseEnter={e => {
-                                        e.currentTarget.style.backgroundColor = '#C9A96E';
-                                        e.currentTarget.style.color = '#1b1c1a';
-                                    }}
-                                    onMouseLeave={e => {
-                                        e.currentTarget.style.backgroundColor = '#1b1c1a';
-                                        e.currentTarget.style.color = '#fbf9f6';
-                                    }}
-                                    onClick={() => {
-                                        handleAddItem({
-                                            productId: product._id,
-                                            variantId: activeVariant._id
-                                        })
-                                    }}
-                                >
-                                    Add to Cart
-                                </button>
+
+                                {/* ── Add to Cart / Quantity Stepper toggle ── */}
+                                {cartQty === 0 ? (
+                                    /* ── Not in cart yet → plain button ── */
+                                    <button
+                                        className="w-full py-4 text-[11px] uppercase tracking-[0.25em] font-medium transition-all duration-300"
+                                        style={{
+                                            backgroundColor: toastAdding ? '#C9A96E' : '#1b1c1a',
+                                            color: toastAdding ? '#1b1c1a' : '#fbf9f6',
+                                            fontFamily: "'Inter', sans-serif",
+                                            cursor: toastAdding ? 'not-allowed' : 'pointer',
+                                        }}
+                                        onMouseEnter={e => {
+                                            if (!toastAdding) {
+                                                e.currentTarget.style.backgroundColor = '#C9A96E';
+                                                e.currentTarget.style.color = '#1b1c1a';
+                                            }
+                                        }}
+                                        onMouseLeave={e => {
+                                            if (!toastAdding) {
+                                                e.currentTarget.style.backgroundColor = '#1b1c1a';
+                                                e.currentTarget.style.color = '#fbf9f6';
+                                            }
+                                        }}
+                                        onClick={async () => {
+                                            if (toastAdding || !activeVariant) return;
+                                            setToastAdding(true);
+                                            try {
+                                                await handleAddItem({
+                                                    productId: product._id,
+                                                    variantId: activeVariant._id
+                                                });
+                                                showCartToast();
+                                            } catch (err) {
+                                                console.error('Add to cart failed', err);
+                                            } finally {
+                                                setToastAdding(false);
+                                            }
+                                        }}
+                                        disabled={toastAdding || !activeVariant}
+                                    >
+                                        {toastAdding ? 'Adding...' : 'Add to Cart'}
+                                    </button>
+                                ) : (
+                                    /* ── Already in cart → quantity stepper ── */
+                                    <div
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'stretch',
+                                            width: '100%',
+                                            border: '1.5px solid #1b1c1a',
+                                            overflow: 'hidden',
+                                        }}
+                                    >
+                                        {/* Decrement / Trash */}
+                                        <button
+                                            onClick={() => handleDecrementCartItem({
+                                                productId: product._id,
+                                                variantId: activeVariant._id,
+                                                currentQty: cartQty,
+                                            })}
+                                            style={{
+                                                width: '56px',
+                                                flexShrink: 0,
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                backgroundColor: cartQty <= 1 ? '#1b1c1a' : 'transparent',
+                                                color: cartQty <= 1 ? '#fbf9f6' : '#1b1c1a',
+                                                border: 'none',
+                                                borderRight: '1.5px solid #1b1c1a',
+                                                cursor: 'pointer',
+                                                transition: 'background-color 0.2s, color 0.2s',
+                                                fontFamily: "'Inter', sans-serif",
+                                            }}
+                                            title={cartQty <= 1 ? 'Remove from cart' : 'Decrease'}
+                                        >
+                                            {cartQty <= 1 ? (
+                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                    <polyline points="3 6 5 6 21 6" />
+                                                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                                                    <path d="M10 11v6M14 11v6" />
+                                                    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                                                </svg>
+                                            ) : (
+                                                <span style={{ fontSize: '18px', lineHeight: 1, fontWeight: 300 }}>−</span>
+                                            )}
+                                        </button>
+
+                                        {/* Quantity display */}
+                                        <div
+                                            style={{
+                                                flex: 1,
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                flexDirection: 'column',
+                                                gap: '2px',
+                                            }}
+                                        >
+                                            <span style={{
+                                                fontSize: '16px',
+                                                fontWeight: 500,
+                                                color: '#1b1c1a',
+                                                fontFamily: "'Cormorant Garamond', serif",
+                                                lineHeight: 1,
+                                            }}>
+                                                {cartQty}
+                                            </span>
+                                            <span style={{
+                                                fontSize: '8px',
+                                                color: '#B5ADA3',
+                                                letterSpacing: '0.18em',
+                                                textTransform: 'uppercase',
+                                                fontFamily: "'Inter', sans-serif",
+                                            }}>
+                                                In Cart
+                                            </span>
+                                        </div>
+
+                                        {/* Increment */}
+                                        <button
+                                            onClick={() => handleIncrementCartItem({
+                                                productId: product._id,
+                                                variantId: activeVariant._id,
+                                            })}
+                                            style={{
+                                                width: '56px',
+                                                flexShrink: 0,
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                backgroundColor: 'transparent',
+                                                color: '#1b1c1a',
+                                                border: 'none',
+                                                borderLeft: '1.5px solid #1b1c1a',
+                                                cursor: 'pointer',
+                                                fontFamily: "'Inter', sans-serif",
+                                            }}
+                                            onMouseEnter={e => e.currentTarget.style.backgroundColor = '#f5f3f0'}
+                                            onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                                        >
+                                            <span style={{ fontSize: '18px', lineHeight: 1, fontWeight: 300 }}>+</span>
+                                        </button>
+                                    </div>
+                                )}
 
                                 <button
                                     className="w-full py-4 text-[11px] uppercase tracking-[0.25em] font-medium transition-all duration-300 border"
@@ -315,6 +454,129 @@ const ProductDetail = () => {
 
                         </div>
                     </div>
+                </div>
+            </div>
+
+            {/* ── Cart Toast Popup (Top-Center) ── */}
+            <div
+                style={{
+                    position: 'fixed',
+                    top: '0',
+                    left: '50%',
+                    transform: cartToast
+                        ? 'translateX(-50%) translateY(0)'
+                        : 'translateX(-50%) translateY(-110%)',
+                    zIndex: 9999,
+                    opacity: cartToast ? 1 : 0,
+                    pointerEvents: cartToast ? 'auto' : 'none',
+                    transition: 'transform 0.45s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease',
+                    width: 'min(460px, 92vw)',
+                    backgroundColor: '#fbf9f6',
+                    borderBottom: '3px solid #C9A96E',
+                    boxShadow: '0 8px 40px rgba(27,28,26,0.18), 0 2px 8px rgba(27,28,26,0.08)',
+                    fontFamily: "'Inter', sans-serif",
+                }}
+            >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '18px 24px 16px' }}>
+                    {/* Checkmark circle */}
+                    <div style={{
+                        width: '40px',
+                        height: '40px',
+                        borderRadius: '50%',
+                        backgroundColor: '#C9A96E',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                    }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fbf9f6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                    </div>
+
+                    {/* Text block */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{
+                            color: '#1b1c1a',
+                            fontSize: '11px',
+                            letterSpacing: '0.2em',
+                            textTransform: 'uppercase',
+                            fontWeight: 600,
+                            marginBottom: '3px',
+                        }}>
+                            Added to Cart
+                        </p>
+                        <p style={{
+                            color: '#7A6E63',
+                            fontSize: '12px',
+                            letterSpacing: '0.03em',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                        }}>
+                            {product?.title}
+                            {activeVariant?.attributes && Object.keys(activeVariant.attributes).length > 0 &&
+                                ' · ' + Object.values(activeVariant.attributes).join(' / ')
+                            }
+                        </p>
+                    </div>
+
+                    {/* View Cart CTA */}
+                    <button
+                        onClick={() => navigate('/cart')}
+                        style={{
+                            padding: '8px 16px',
+                            fontSize: '10px',
+                            letterSpacing: '0.18em',
+                            textTransform: 'uppercase',
+                            fontWeight: 600,
+                            color: '#fbf9f6',
+                            backgroundColor: '#1b1c1a',
+                            border: 'none',
+                            cursor: 'pointer',
+                            flexShrink: 0,
+                            fontFamily: "'Inter', sans-serif",
+                            transition: 'background-color 0.2s',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.backgroundColor = '#C9A96E'}
+                        onMouseLeave={e => e.currentTarget.style.backgroundColor = '#1b1c1a'}
+                    >
+                        View Cart
+                    </button>
+
+                    {/* Close X */}
+                    <button
+                        onClick={() => setCartToast(false)}
+                        style={{
+                            width: '28px',
+                            height: '28px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: '#B5ADA3',
+                            flexShrink: 0,
+                        }}
+                        aria-label="Close"
+                    >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
+                    </button>
+                </div>
+
+                {/* Countdown progress bar */}
+                <div style={{ height: '3px', backgroundColor: '#e4e2df', overflow: 'hidden' }}>
+                    <div
+                        style={{
+                            height: '100%',
+                            backgroundColor: '#C9A96E',
+                            width: cartToast ? '0%' : '100%',
+                            transition: cartToast ? 'width 3s linear' : 'none',
+                        }}
+                    />
                 </div>
             </div>
         </>
