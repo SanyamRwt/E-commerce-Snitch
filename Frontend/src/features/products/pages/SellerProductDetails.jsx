@@ -78,20 +78,32 @@ const SellerProductDetails = () => {
         : undefined // price is optional
     };
 
-    setLocalVariants([ ...localVariants, variantToSave ]);
-    setIsAddingVariant(false);
+    try {
+      // Wait for the backend save to actually succeed before touching the UI
+      await handleAddProductVariant(productId, variantToSave)
 
-    await handleAddProductVariant(productId, variantToSave)
+      // Re-fetch the product so localVariants reflects the real saved data
+      // (correct _id, correctly persisted attributes/images, etc.)
+      await fetchProductDetails();
 
-    // Reset form
-    // Note: should ideally revoke old object URLs as well to prevent memory leaks if it were a long-lived SPA
-    setAttributeInputs([ { key: '', value: '' } ]);
-    setNewVariant({
-      images: [],
-      stock: 0,
-      attributes: {},
-      price: { amount: '', currency: 'INR' }
-    });
+      setIsAddingVariant(false);
+
+      // Reset form
+      // Note: should ideally revoke old object URLs as well to prevent memory leaks if it were a long-lived SPA
+      setAttributeInputs([ { key: '', value: '' } ]);
+      setNewVariant({
+        images: [],
+        stock: 0,
+        attributes: {},
+        price: { amount: '', currency: 'INR' }
+      });
+    } catch (error) {
+      console.error('Failed to save variant', error);
+      alert(
+        error?.response?.data?.message ||
+        'Failed to save variant. Please check the details and try again.'
+      );
+    }
   };
 
   const handleAddAttribute = () => {

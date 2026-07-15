@@ -53,8 +53,11 @@ export const register = async (req, res) => {
 
         await sendTokenResponse(user, res, "User registered successfully")
 
-    } catch (error) {
+     } catch (error) {
         console.log(error)
+        if (error.code === 11000) {
+            return res.status(400).json({ message: "User with this email or contact already exists" });
+        }
         return res.status(500).json({ message: "Server error" });
     }
 }
