@@ -66,8 +66,11 @@ const CreateProduct = () => {
             data.append('priceAmount', formData.priceAmount);
             data.append('priceCurrency', formData.priceCurrency);
             images.forEach(img => data.append('images', img.file));
-            await handleCreateProduct(data);
-            navigate('/');
+            const product = await handleCreateProduct(data);
+            // Redirect straight to the product's variant page so the seller
+            // can immediately add size/color variants (required for buyers
+            // to be able to add the product to cart).
+            navigate(`/seller/product/${product._id}`);
         } catch (err) {
             console.error('Failed to create product', err);
         } finally {
