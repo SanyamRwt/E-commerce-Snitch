@@ -13,8 +13,8 @@ async function sendTokenResponse(user, res, message) {
 
     res.cookie("token", token, {
         httpOnly: true,
-        secure: config.NODE_ENV === "production",
-        sameSite: config.NODE_ENV === "production" ? "none" : "lax",
+        secure: false,
+        sameSite: "lax",
         maxAge: 7 * 24 * 60 * 60 * 1000
     })
 
@@ -112,8 +112,8 @@ export const googleCallback = async (req, res) => {
 
     res.cookie("token", token, {
         httpOnly: true,
-        secure: config.NODE_ENV === "production",
-        sameSite: config.NODE_ENV === "production" ? "none" : "lax",
+        secure: false,
+        sameSite: "lax",
         maxAge: 7 * 24 * 60 * 60 * 1000
     })
 
